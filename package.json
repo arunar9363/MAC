@@ -1,0 +1,15 @@
+{
+  "name": "ghost-medical-platform",
+  "version": "1.0.0",
+  "description": "Medical Affective Computing: Multimodal AI for Emotion-Aware Healthcare",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "setup:ai": "cd ai-services && pip install -r requirements.txt"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

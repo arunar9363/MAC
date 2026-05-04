@@ -1,0 +1,27 @@
+{
+  "name": "ghost-backend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "mongoose": "^8.6.4",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "morgan": "^1.10.0",
+    "puppeteer": "^23.4.1",
+    "form-data": "^4.0.1",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0",
+    "express-rate-limit": "^7.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

@@ -1,0 +1,90 @@
+version: '3.9'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7.0
+    container_name: mac-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: mac_medical
+
+  # Node.js Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mac-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongodb
+      - face-service
+      - voice-service
+      - text-service
+    environment:
+      PORT: 5000
+      MONGODB_URI: mongodb://mongodb:27017/mac_medical
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      FACE_SERVICE_URL: http://face-service:8001
+      VOICE_SERVICE_URL: http://voice-service:8002
+      TEXT_SERVICE_URL: http://text-service:8003
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mac-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # Face Analysis Service
+  face-service:
+    build:
+      context: ./ai-services/face-service
+      dockerfile: Dockerfile
+    container_name: mac-face-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - uploads_data:/app/uploads
+
+  # Voice Analysis Service
+  voice-service:
+    build:
+      context: ./ai-services/voice-service
+      dockerfile: Dockerfile
+    container_name: mac-voice-service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    volumes:
+      - uploads_data:/app/uploads
+
+  # Text Analysis Service
+  text-service:
+    build:
+      context: ./ai-services/text-service
+      dockerfile: Dockerfile
+    container_name: mac-text-service
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+
+volumes:
+  mongodb_data:
+  uploads_data:
