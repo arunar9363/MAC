@@ -7,7 +7,7 @@ import useThemeStore from '@/context/themeStore'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
-  const [email,  setEmail]  = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const { login, isLoading } = useAuthStore()
@@ -25,59 +25,97 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center px-4 transition-colors duration-300">
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4 py-8 transition-colors duration-300">
       <div className="fixed inset-0 dark:bg-mesh-dark bg-mesh-light opacity-50 pointer-events-none" />
 
       {/* Theme toggle */}
-      <button onClick={toggle} className="fixed top-5 right-5 w-9 h-9 rounded-xl glass flex items-center justify-center z-10">
-        {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-mac-500" />}
+      <button
+        onClick={toggle}
+        className="fixed top-4 right-4 sm:top-5 sm:right-5 w-9 h-9 rounded-xl glass flex items-center justify-center z-10"
+      >
+        {isDark
+          ? <Sun className="w-4 h-4 text-yellow-400" />
+          : <Moon className="w-4 h-4 text-mac-500" />}
       </button>
 
       <motion.div
         initial={{ opacity: 0, y: 28, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative z-10"
+        className="w-full max-w-sm sm:max-w-md relative z-10"
       >
-        <div className="text-center mb-8">
-          <Link to="/" className="inline-flex flex-col items-center mb-6">
-            <span className="font-display font-bold text-3xl leading-none"
-              style={{ color: '#22c55e' }}>MAC</span>
-            <span className="text-muted text-xs font-mono tracking-widest mt-0.5">
+        {/* Logo + heading */}
+        <div className="text-center mb-6 sm:mb-8">
+          <Link to="/" className="inline-flex flex-col items-center mb-4 sm:mb-6">
+            <span
+              className="font-display font-bold text-2xl sm:text-3xl leading-none"
+              style={{ color: '#22c55e' }}
+            >
+              MAC
+            </span>
+            <span className="text-muted text-[10px] sm:text-xs font-mono tracking-widest mt-0.5">
               Medical Affective Computing
             </span>
           </Link>
-          <h1 className="font-display text-3xl font-bold text-primary mb-1">Welcome back</h1>
-          <p className="text-muted font-body text-sm">Sign in to your clinical workspace</p>
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-primary mb-1">
+            Welcome back
+          </h1>
+          <p className="text-muted font-body text-xs sm:text-sm">
+            Sign in to your clinical workspace
+          </p>
         </div>
 
-        <div className="card p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Card */}
+        <div className="card p-5 sm:p-8">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             <div>
-              <label className="block text-sm font-medium text-muted mb-2">Email</label>
-              <input type="email" className="input-field" placeholder="doctor@clinic.com"
-                value={email} onChange={(e) => setEmail(e.target.value)} />
+              <label className="block text-xs sm:text-sm font-medium text-muted mb-1.5 sm:mb-2">
+                Email
+              </label>
+              <input
+                type="email"
+                className="input-field"
+                placeholder="doctor@clinic.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-muted mb-2">Password</label>
+              <label className="block text-xs sm:text-sm font-medium text-muted mb-1.5 sm:mb-2">
+                Password
+              </label>
               <div className="relative">
-                <input type={showPw ? 'text' : 'password'} className="input-field pr-12"
-                  placeholder="••••••••••" value={password}
-                  onChange={(e) => setPassword(e.target.value)} />
-                <button type="button" onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary">
-                  {showPw ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  className="input-field pr-11"
+                  placeholder="••••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(!showPw)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary p-1"
+                >
+                  {showPw
+                    ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
+                    : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </button>
               </div>
             </div>
-            <button type="submit" disabled={isLoading}
-              className="btn-primary w-full mt-6 shadow-glow-mac">
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-primary w-full mt-2 sm:mt-6 shadow-glow-mac"
+            >
               {isLoading
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Authenticating...</>
                 : 'Sign In'}
             </button>
           </form>
-          <p className="text-center text-muted text-sm mt-6">
+
+          <p className="text-center text-muted text-xs sm:text-sm mt-4 sm:mt-6">
             No account?{' '}
             <Link to="/register" className="text-mac-400 hover:text-mac-300 font-medium">
               Create one free

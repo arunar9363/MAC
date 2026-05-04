@@ -38,15 +38,17 @@
   html { scroll-behavior: smooth; }
 
   body {
-   font-family: 'Nunito', sans-serif;
+    font-family: 'Nunito', sans-serif;
     background-color: var(--bg-primary);
     color: var(--text-primary);
     overflow-x: hidden;
     transition: background-color 0.3s ease, color 0.3s ease;
+    /* Prevent zoom on input focus on iOS */
+    -webkit-text-size-adjust: 100%;
   }
 
   h1, h2, h3, h4, h5, h6 {
-   font-family: 'Nunito', sans-serif; 
+    font-family: 'Nunito', sans-serif;
     font-weight: 600;
     letter-spacing: -0.02em;
   }
@@ -60,6 +62,9 @@
   ::-webkit-scrollbar-track { background: var(--bg-secondary); }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  /* iOS tap highlight remove */
+  * { -webkit-tap-highlight-color: transparent; }
 }
 
 /* ─── Component Layer ────────────────────────────────────── */
@@ -84,23 +89,29 @@
     backdrop-filter: blur(20px);
     border: 1px solid var(--border);
     border-radius: 1rem;
-    padding: 1.5rem;
+    padding: 1.25rem;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  @media (min-width: 640px) {
+    .card { padding: 1.5rem; }
   }
   .card:hover { border-color: var(--border-hover); }
 
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2
            bg-emerald-600 hover:bg-emerald-500 text-white
-           font-display font-semibold px-6 py-3 rounded-xl
+           font-display font-semibold px-4 py-2.5 rounded-xl text-sm
            transition-all duration-200
            hover:shadow-[0_0_20px_rgba(14,158,87,0.35)] hover:scale-[1.02] active:scale-[0.98]
            disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100;
   }
+  @media (min-width: 640px) {
+    .btn-primary { @apply px-6 py-3 text-base; }
+  }
 
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2
-           font-display font-medium px-6 py-3 rounded-xl
+           font-display font-medium px-4 py-2.5 rounded-xl text-sm
            transition-all duration-200 active:scale-[0.98]
            border hover:scale-[1.02];
     background: var(--bg-glass);
@@ -108,15 +119,26 @@
     color: var(--text-primary);
     backdrop-filter: blur(12px);
   }
+  @media (min-width: 640px) {
+    .btn-secondary { @apply px-6 py-3 text-base; }
+  }
   .btn-secondary:hover { border-color: var(--border-hover); }
 
   .input-field {
-    @apply w-full rounded-xl px-4 py-3 font-body text-sm
+    @apply w-full rounded-xl px-3 py-2.5 font-body text-sm
            focus:outline-none focus:ring-2 focus:ring-emerald-500/30
            transition-all duration-200;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     color: var(--text-primary);
+    /* Prevent iOS zoom on focus (font-size must be >= 16px equivalent) */
+    font-size: 16px;
+  }
+  @media (min-width: 640px) {
+    .input-field {
+      @apply px-4 py-3;
+      font-size: 0.875rem;
+    }
   }
   .input-field::placeholder { color: var(--text-subtle); }
   .input-field:focus { border-color: var(--accent); }
@@ -165,4 +187,10 @@
   .bg-surface   { background: var(--bg-primary); }
   .bg-surface-2 { background: var(--bg-secondary); }
   .border-token { border-color: var(--border); }
+}
+
+/* ─── Keyframes ──────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
