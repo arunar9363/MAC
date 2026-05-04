@@ -21,6 +21,12 @@ uvicorn main:app --host 0.0.0.0 --port 8003 --reload &
 TEXT_PID=$!
 echo "✅ Text Service started (PID: $TEXT_PID) → http://localhost:8003"
 
+# Agent service
+cd ../agent-service
+uvicorn main:app --host 0.0.0.0 --port 8004 --reload &
+AGENT_PID=$!
+echo "✅ Agent Service started (PID: $AGENT_PID) → http://localhost:8004"
+
 echo ""
 echo "All AI services running. Press Ctrl+C to stop all."
 
