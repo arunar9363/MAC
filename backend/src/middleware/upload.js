@@ -2,7 +2,7 @@ const multer = require('multer')
 const path = require('path')
 const fs = require('fs')
 
-const uploadsDir = path.join(__dirname, '../../../uploads')
+const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, '../../../uploads')
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true })
 }
@@ -30,7 +30,6 @@ const fileFilter = (req, file, cb) => {
   if (file.fieldname === 'audio' && allowedAudio.includes(file.mimetype)) {
     return cb(null, true)
   }
-  // Allow webm for both (browser recording)
   if (file.mimetype === 'video/webm' || file.mimetype === 'audio/webm') {
     return cb(null, true)
   }
