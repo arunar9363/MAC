@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     cmake \
     libopenblas-dev \
     liblapack-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
