@@ -1,13 +1,16 @@
 FROM python:3.11-slim
 
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir fastapi uvicorn[standard] transformers torch vaderSentiment nltk pydantic
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -c "import nltk; nltk.download('punkt')"
-# Pre-download HuggingFace model
-RUN python -c "from transformers import pipeline; pipeline('text-classification', model='j-hartmann/emotion-english-distilroberta-base', top_k=None)" || true
+COPY . .
 
-COPY main.py .
 EXPOSE 8003
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]
+
+CMD ["python", "start.py"]
