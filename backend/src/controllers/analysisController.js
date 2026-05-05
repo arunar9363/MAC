@@ -1,12 +1,12 @@
 const axios = require('axios')
 const path = require('path')
 const Analysis = require('../models/Analysis')
-const agentService = require('../services/agentService')
 const pdfService = require('../services/pdfService')
 
-const FACE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8001'
+const FACE_URL  = process.env.FACE_SERVICE_URL  || 'http://localhost:8001'
 const VOICE_URL = process.env.VOICE_SERVICE_URL || 'http://localhost:8002'
-const TEXT_URL = process.env.TEXT_SERVICE_URL || 'http://localhost:8003'
+const TEXT_URL  = process.env.TEXT_SERVICE_URL  || 'http://localhost:8003'
+const AGENT_URL = process.env.AGENT_SERVICE_URL || 'http://localhost:8004'
 
 // Call Python microservice with file
 async function callFileService(serviceUrl, filePath, endpoint = '/analyze') {
@@ -28,88 +28,119 @@ async function callTextService(text) {
   return res.data
 }
 
+// Call Python agent service (port 8004)
+async function callAgentService({ faceFeatures, voiceFeatures, textFeatures, patientId, sessionId, previousReport }) {
+  const res = await axios.post(`${AGENT_URL}/reason`, {
+    face_features:   faceFeatures  || null,
+    voice_features:  voiceFeatures || null,
+    text_features:   textFeatures  || null,
+    patient_id:      patientId,
+    session_id:      sessionId     || '',
+    previous_report: previousReport || null,
+  }, { timeout: 45000 })
+  return res.data
+}
+
 const runAnalysis = async (req, res) => {
-  const startTime = Date.now()
-  const { patientId, text } = req.body
-  const userId = req.user._id
-
-  if (!patientId) {
-    return res.status(400).json({ message: 'patientId is required' })
-  }
-
-  const videoFile = req.files?.video?.[0]
-  const audioFile = req.files?.audio?.[0]
-
-  if (!videoFile && !audioFile && !text?.trim()) {
-    return res.status(400).json({ message: 'At least one input (video, audio, or text) required' })
-  }
-
-  // Create pending record
-  const analysis = await Analysis.create({
-    patientId: patientId.toUpperCase(),
-    userId,
-    inputs: {
-      videoPath: videoFile?.path || null,
-      audioPath: audioFile?.path || null,
-      text: text?.trim() || null,
-      hasVideo: !!videoFile,
-      hasAudio: !!audioFile,
-      hasText: !!text?.trim(),
-    },
-    status: 'processing',
-  })
-
-  // Run AI services in parallel
-  const [faceResult, voiceResult, textResult] = await Promise.allSettled([
-    videoFile ? callFileService(FACE_URL, videoFile.path) : Promise.resolve(null),
-    audioFile ? callFileService(VOICE_URL, audioFile.path) : Promise.resolve(null),
-    text?.trim() ? callTextService(text.trim()) : Promise.resolve(null),
-  ])
-
-  const faceFeatures = faceResult.status === 'fulfilled' ? faceResult.value : null
-  const voiceFeatures = voiceResult.status === 'fulfilled' ? voiceResult.value : null
-  const textFeatures = textResult.status === 'fulfilled' ? textResult.value : null
-
-  if (!faceFeatures && !voiceFeatures && !textFeatures) {
-    analysis.status = 'failed'
-    await analysis.save()
-    return res.status(503).json({
-      message: 'All AI microservices failed. Ensure Python services are running.',
-    })
-  }
-
-  // Store extracted features
-  analysis.extractedFeatures = {
-    face: faceFeatures,
-    voice: voiceFeatures,
-    text: textFeatures,
-  }
-
-  // Call Groq agent
   try {
-    const finalReport = await agentService.analyze({
-      faceFeatures,
-      voiceFeatures,
-      textFeatures,
-      patientId,
+    const startTime = Date.now()
+    const { patientId, text } = req.body
+    const userId = req.user._id
+
+    if (!patientId) {
+      return res.status(400).json({ message: 'patientId is required' })
+    }
+
+    const videoFile = req.files?.video?.[0]
+    const audioFile = req.files?.audio?.[0]
+
+    if (!videoFile && !audioFile && !text?.trim()) {
+      return res.status(400).json({ message: 'At least one input (video, audio, or text) required' })
+    }
+
+    // Create pending record
+    const analysis = await Analysis.create({
+      patientId: patientId.toUpperCase(),
+      userId,
+      inputs: {
+        videoPath: videoFile?.path || null,
+        audioPath: audioFile?.path || null,
+        text: text?.trim() || null,
+        hasVideo:  !!videoFile,
+        hasAudio:  !!audioFile,
+        hasText:   !!text?.trim(),
+      },
+      status: 'processing',
     })
-    analysis.finalReport = finalReport
-    analysis.status = 'completed'
+
+    // Fetch previous session for this patient (Python agent uses it for context)
+    const previousAnalysis = await Analysis.findOne({
+      patientId: patientId.toUpperCase(),
+      userId,
+      _id:    { $ne: analysis._id },
+      status: 'completed',
+    })
+      .sort({ createdAt: -1 })
+      .select('finalReport')
+
+    // Run face, voice, text services in parallel
+    const [faceResult, voiceResult, textResult] = await Promise.allSettled([
+      videoFile   ? callFileService(FACE_URL,  videoFile.path) : Promise.resolve(null),
+      audioFile   ? callFileService(VOICE_URL, audioFile.path) : Promise.resolve(null),
+      text?.trim() ? callTextService(text.trim())              : Promise.resolve(null),
+    ])
+
+    const faceFeatures  = faceResult.status  === 'fulfilled' ? faceResult.value  : null
+    const voiceFeatures = voiceResult.status === 'fulfilled' ? voiceResult.value : null
+    const textFeatures  = textResult.status  === 'fulfilled' ? textResult.value  : null
+
+    if (!faceFeatures && !voiceFeatures && !textFeatures) {
+      analysis.status = 'failed'
+      await analysis.save()
+      return res.status(503).json({
+        message: 'All AI microservices failed. Ensure Python services are running.',
+      })
+    }
+
+    // Store extracted features
+    analysis.extractedFeatures = {
+      face:  faceFeatures,
+      voice: voiceFeatures,
+      text:  textFeatures,
+    }
+
+    // Call Python agent service
+    try {
+      const finalReport = await callAgentService({
+        faceFeatures,
+        voiceFeatures,
+        textFeatures,
+        patientId:      patientId.toUpperCase(),
+        sessionId:      analysis._id.toString(),
+        previousReport: previousAnalysis?.finalReport || null,
+      })
+      analysis.finalReport = finalReport
+      analysis.status = 'completed'
+    } catch (agentErr) {
+      console.error('Python agent error:', agentErr.message)
+      // Fallback if agent is down
+      analysis.finalReport = generateFallbackReport(faceFeatures, voiceFeatures, textFeatures)
+      analysis.status = 'completed'
+    }
+
+    analysis.processingTime = Date.now() - startTime
+    await analysis.save()
+
+    res.json({
+      analysisId:     analysis._id,
+      status:         'completed',
+      processingTime: analysis.processingTime,
+    })
+
   } catch (err) {
-    console.error('Agent error:', err.message)
-    // Generate fallback report from raw features
-    analysis.finalReport = generateFallbackReport(faceFeatures, voiceFeatures, textFeatures)
-    analysis.status = 'completed'
+    console.error('runAnalysis fatal error:', err)
+    res.status(500).json({ message: 'Analysis failed: ' + err.message })
   }
-
-  analysis.processingTime = Date.now() - startTime
-  await analysis.save()
-
-  res.json({
-    analysisId: analysis._id,
-    status: 'completed',
-    processingTime: analysis.processingTime,
-  })
 }
 
 function generateFallbackReport(face, voice, text) {
@@ -133,14 +164,14 @@ function generateFallbackReport(face, voice, text) {
   const risk = riskMap[Math.min(riskScore, 5)]
 
   return {
-    emotional_state: face?.dominant_emotion || text?.emotion || 'undetermined',
-    confidence: 0.6,
-    risk_level: risk,
-    patterns_detected: patterns,
+    emotional_state:    face?.dominant_emotion || text?.emotion || 'undetermined',
+    confidence:         0.6,
+    risk_level:         risk,
+    patterns_detected:  patterns,
     signals: {
-      face: face ? `Dominant: ${face.dominant_emotion}, Valence: ${face.valence?.toFixed(2)}` : 'No facial data',
+      face:  face  ? `Dominant: ${face.dominant_emotion}, Valence: ${face.valence?.toFixed(2)}`   : 'No facial data',
       voice: voice ? `Energy: ${voice.energy_mean?.toFixed(2)}, Pitch: ${voice.pitch_mean?.toFixed(0)}Hz` : 'No audio data',
-      text: text ? `Sentiment: ${text.sentiment}, Compound: ${text.compound?.toFixed(2)}` : 'No text data',
+      text:  text  ? `Sentiment: ${text.sentiment}, Compound: ${text.compound?.toFixed(2)}`        : 'No text data',
     },
     explanation: 'Fallback analysis generated from raw modality features (AI agent unavailable). Please review manually.',
   }
@@ -163,7 +194,7 @@ const getAnalyses = async (req, res) => {
 
 const getAnalysis = async (req, res) => {
   const analysis = await Analysis.findOne({
-    _id: req.params.id,
+    _id:    req.params.id,
     userId: req.user._id,
   })
 
@@ -171,12 +202,11 @@ const getAnalysis = async (req, res) => {
     return res.status(404).json({ message: 'Analysis not found' })
   }
 
-  // Check for previous analysis of same patient
   const previousAnalysis = await Analysis.findOne({
     patientId: analysis.patientId,
-    userId: req.user._id,
-    _id: { $ne: analysis._id },
-    status: 'completed',
+    userId:    req.user._id,
+    _id:       { $ne: analysis._id },
+    status:    'completed',
   })
     .sort({ createdAt: -1 })
     .select('finalReport createdAt')
@@ -186,7 +216,7 @@ const getAnalysis = async (req, res) => {
 
 const downloadPDF = async (req, res) => {
   const analysis = await Analysis.findOne({
-    _id: req.params.id,
+    _id:    req.params.id,
     userId: req.user._id,
   })
 
@@ -197,9 +227,9 @@ const downloadPDF = async (req, res) => {
   try {
     const pdfBuffer = await pdfService.generate(analysis, req.user)
     res.set({
-      'Content-Type': 'application/pdf',
+      'Content-Type':        'application/pdf',
       'Content-Disposition': `attachment; filename="mac-report-${analysis.patientId}.pdf"`,
-      'Content-Length': pdfBuffer.length,
+      'Content-Length':      pdfBuffer.length,
     })
     res.send(pdfBuffer)
   } catch (err) {
@@ -223,7 +253,7 @@ const getStats = async (req, res) => {
 
   res.json({
     total,
-    patients: patients.length,
+    patients:      patients.length,
     reports,
     avgConfidence: avgConf[0]?.avg || 0,
   })

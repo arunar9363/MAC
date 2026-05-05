@@ -1,4 +1,4 @@
-import PDFDocument from 'pdfkit';
+const PDFDocument = require('pdfkit');
 
 // Colors matching site light mode
 const COLORS = {
@@ -58,7 +58,7 @@ function metricBar(doc, label, value, color, x, y, width) {
   return y + 24;
 }
 
-export const generatePDFReport = (analysis, user) => {
+const generatePDFReport = (analysis, user) => {
   return new Promise((resolve, reject) => {
     try {
       const { report, features, patientId, sessionId, createdAt, trendDelta } = analysis;
@@ -310,3 +310,4 @@ export const generatePDFReport = (analysis, user) => {
     }
   });
 };
+module.exports = { generate: generatePDFReport };
