@@ -1,6 +1,5 @@
 FROM python:3.11-slim
 
-# System dependencies for audio/video processing
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
@@ -14,9 +13,12 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+COPY . .
+
 EXPOSE 8001
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+
+CMD ["python", "start.py"]
