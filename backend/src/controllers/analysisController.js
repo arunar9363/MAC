@@ -86,7 +86,7 @@ const runAnalysis = async (req, res) => {
     // Run face, voice, text services in parallel
     const [faceResult, voiceResult, textResult] = await Promise.allSettled([
       videoFile   ? callFileService(FACE_URL,  videoFile.path) : Promise.resolve(null),
-      audioFile   ? callFileService(VOICE_URL, audioFile.path) : Promise.resolve(null),
+      (audioFile || videoFile) ? callFileService(VOICE_URL, audioFile?.path || videoFile.path) : Promise.resolve(null),
       text?.trim() ? callTextService(text.trim())              : Promise.resolve(null),
     ])
 
