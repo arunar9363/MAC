@@ -1,13 +1,12 @@
 """
-Ghost Medical - Face Analysis Service
+MAC - Face Analysis Service (Lightweight)
 Port: 8001
-Uses: DeepFace, MediaPipe, OpenCV
-Extracts: emotions, valence, arousal, action units
+Uses: OpenCV only — no DeepFace, no TensorFlow, no MediaPipe
+Memory: ~150MB (vs 1GB+ with DeepFace)
 """
 
 import os
-import io
-import math
+import cv2
 import tempfile
 import numpy as np
 from pathlib import Path
@@ -15,37 +14,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-# Lazy imports to avoid slow startup
-_deepface = None
-_cv2 = None
-_mp = None
-
-
-def get_deepface():
-    global _deepface
-    if _deepface is None:
-        from deepface import DeepFace
-        _deepface = DeepFace
-    return _deepface
-
-
-def get_cv2():
-    global _cv2
-    if _cv2 is None:
-        import cv2
-        _cv2 = cv2
-    return _cv2
-
-
-def get_mediapipe():
-    global _mp
-    if _mp is None:
-        import mediapipe as mp
-        _mp = mp
-    return _mp
-
-
-app = FastAPI(title="Ghost Face Analysis Service", version="1.0.0")
+app = FastAPI(title="MAC Face Analysis Service (Lightweight)", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,36 +23,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Valence/arousal mapping from basic emotions (Russell's circumplex model)
+# Load OpenCV's built-in face + eye detectors (no download needed)
+FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+EYE_CASCADE  = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+SMILE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smile.xml')
+
+# Emotion proxies from facial geometry
 EMOTION_VALENCE = {
-    "happy": 0.85,
+    "happy":    0.85,
     "surprised": 0.1,
-    "neutral": 0.0,
-    "sad": -0.7,
-    "fearful": -0.6,
-    "disgusted": -0.75,
-    "angry": -0.65,
+    "neutral":   0.0,
+    "sad":      -0.7,
+    "fearful":  -0.6,
+    "disgusted":-0.75,
+    "angry":    -0.65,
 }
 EMOTION_AROUSAL = {
-    "happy": 0.7,
+    "happy":    0.7,
     "surprised": 0.8,
-    "neutral": 0.0,
-    "sad": -0.4,
-    "fearful": 0.75,
+    "neutral":   0.0,
+    "sad":      -0.4,
+    "fearful":   0.75,
     "disgusted": 0.2,
-    "angry": 0.8,
+    "angry":     0.8,
 }
 
 
-def extract_frames(video_path: str, max_frames: int = 8) -> list:
-    """Extract evenly-spaced frames from video."""
-    cv2 = get_cv2()
+def extract_frames(video_path: str, max_frames: int = 6):
     cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    duration = total_frames / fps if fps > 0 else 0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps   = cap.get(cv2.CAP_PROP_FPS) or 25
+    duration = total / fps
 
-    indices = np.linspace(0, max(total_frames - 1, 0), min(max_frames, total_frames), dtype=int)
+    indices = np.linspace(0, max(total - 1, 0), min(max_frames, max(total, 1)), dtype=int)
     frames = []
     for idx in indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
@@ -94,162 +66,181 @@ def extract_frames(video_path: str, max_frames: int = 8) -> list:
     return frames, duration
 
 
-def analyze_frame_deepface(frame) -> dict:
-    """Run DeepFace analysis on a single frame."""
-    DeepFace = get_deepface()
-    cv2 = get_cv2()
+def analyze_frame(frame):
+    """
+    Lightweight analysis using Haar cascades:
+    - Detect face presence
+    - Detect smile (happy proxy)
+    - Detect open eyes (alertness proxy)
+    - Compute brightness & contrast as arousal proxies
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Convert BGR to RGB
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    try:
-        results = DeepFace.analyze(
-            img_path=rgb,
-            actions=["emotion", "age", "gender"],
-            enforce_detection=False,
-            silent=True,
-        )
-        if isinstance(results, list):
-            results = results[0]
-        return results
-    except Exception as e:
+    faces = FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+    if len(faces) == 0:
         return None
 
+    # Use largest face
+    x, y, w, h = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
+    face_roi   = gray[y:y+h, x:x+w]
+    face_color = frame[y:y+h, x:x+w]
 
-def detect_face_mediapipe(frame) -> dict:
-    """Run MediaPipe Face Mesh for landmark detection."""
-    mp = get_mediapipe()
-    cv2 = get_cv2()
+    # --- Smile detection ---
+    smiles = SMILE_CASCADE.detectMultiScale(face_roi, scaleFactor=1.7, minNeighbors=20, minSize=(25, 25))
+    smile_score = min(len(smiles) * 0.4, 1.0)
 
-    mp_face_mesh = mp.solutions.face_mesh
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # --- Eye openness ---
+    eyes = EYE_CASCADE.detectMultiScale(face_roi, scaleFactor=1.1, minNeighbors=10)
+    eye_score = min(len(eyes) / 2.0, 1.0)  # 0 = closed/tired, 1 = both open
 
-    with mp_face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-    ) as face_mesh:
-        results = face_mesh.process(rgb)
-        if results.multi_face_landmarks:
-            return {"detected": True, "landmark_count": len(results.multi_face_landmarks[0].landmark)}
-    return {"detected": False, "landmark_count": 0}
+    # --- Brightness (proxy for energy/arousal) ---
+    brightness = float(np.mean(face_roi)) / 255.0  # 0-1
 
+    # --- Skin tone variance (proxy for emotional flush / pallor) ---
+    hsv = cv2.cvtColor(face_color, cv2.COLOR_BGR2HSV)
+    sat_mean = float(np.mean(hsv[:, :, 1])) / 255.0  # saturation
 
-def infer_action_units(emotions: dict) -> list:
-    """Map dominant emotions to approximate FACS action units."""
-    au_map = {
-        "happy": ["AU6", "AU12"],
-        "sad": ["AU1", "AU4", "AU15", "AU17"],
-        "angry": ["AU4", "AU5", "AU7", "AU23", "AU24"],
-        "fearful": ["AU1", "AU2", "AU4", "AU5", "AU7", "AU20"],
-        "disgusted": ["AU9", "AU15", "AU16"],
-        "surprised": ["AU1", "AU2", "AU5", "AU26", "AU27"],
-        "neutral": [],
+    return {
+        "face_detected": True,
+        "smile_score":   round(smile_score, 3),
+        "eye_score":     round(eye_score, 3),
+        "brightness":    round(brightness, 3),
+        "saturation":    round(sat_mean, 3),
+        "face_area":     int(w * h),
     }
-    dominant = max(emotions, key=emotions.get)
-    aus = au_map.get(dominant, [])
-    # Add secondary AUs for secondary emotion
-    sorted_emos = sorted(emotions.items(), key=lambda x: x[1], reverse=True)
-    if len(sorted_emos) > 1 and sorted_emos[1][1] > 0.2:
-        secondary = sorted_emos[1][0]
-        aus += au_map.get(secondary, [])
-    return list(set(aus))
+
+
+def infer_emotion(smile, eye, brightness, saturation):
+    """
+    Rule-based emotion inference from OpenCV features.
+    Returns emotion distribution dict.
+    """
+    emotions = {
+        "happy":     0.0,
+        "neutral":   0.0,
+        "sad":       0.0,
+        "angry":     0.0,
+        "fearful":   0.0,
+        "disgusted": 0.0,
+        "surprised": 0.0,
+    }
+
+    if smile > 0.5:
+        emotions["happy"]   += smile * 0.7
+        emotions["neutral"] += (1 - smile) * 0.3
+    elif eye < 0.3:
+        # Eyes mostly closed — tired / sad
+        emotions["sad"]     += 0.4
+        emotions["neutral"] += 0.3
+        emotions["fearful"] += 0.2
+        emotions["angry"]   += 0.1
+    elif brightness < 0.35:
+        # Dark / low energy face
+        emotions["sad"]     += 0.35
+        emotions["neutral"] += 0.35
+        emotions["angry"]   += 0.2
+        emotions["disgusted"] += 0.1
+    elif saturation > 0.45:
+        # Flushed / high saturation — anger or fear
+        emotions["angry"]   += 0.35
+        emotions["fearful"] += 0.3
+        emotions["surprised"] += 0.2
+        emotions["neutral"] += 0.15
+    else:
+        emotions["neutral"] += 0.55
+        emotions["happy"]   += 0.2
+        emotions["sad"]     += 0.15
+        emotions["fearful"] += 0.1
+
+    # Normalize
+    total = sum(emotions.values()) or 1
+    return {k: round(v / total, 4) for k, v in emotions.items()}
 
 
 @app.post("/analyze")
 async def analyze_video(file: UploadFile = File(...)):
-    """
-    Analyze a video file for facial emotional signals.
-    Returns structured features including emotions, valence, arousal.
-    """
-    suffix = Path(file.filename).suffix or ".mp4"
+    suffix = Path(file.filename or "video.webm").suffix or ".webm"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
-        frames, duration = extract_frames(tmp_path, max_frames=8)
+        frames, duration = extract_frames(tmp_path, max_frames=6)
+
         if not frames:
-            raise HTTPException(status_code=422, detail="No frames extracted from video")
-
-        # Analyze frames
-        all_emotions = []
-        all_ages = []
-        genders = []
-        face_detected_count = 0
-
-        for frame in frames:
-            df_result = analyze_frame_deepface(frame)
-            if df_result:
-                face_detected_count += 1
-                emotion_dict = df_result.get("emotion", {})
-                # Normalize to 0-1
-                total = sum(emotion_dict.values()) or 1
-                normalized = {k: v / total for k, v in emotion_dict.items()}
-                all_emotions.append(normalized)
-                age = df_result.get("age")
-                if age:
-                    all_ages.append(age)
-                gender_data = df_result.get("gender", {})
-                if gender_data:
-                    genders.append(max(gender_data, key=gender_data.get))
-
-        if not all_emotions:
-            # Return minimal response if no face detected
             return {
-                "face_detected": False,
+                "face_detected":   False,
                 "dominant_emotion": "neutral",
-                "emotions": {k: 0.0 for k in EMOTION_VALENCE},
-                "valence": 0.0,
-                "arousal": 0.0,
-                "confidence": 0.1,
-                "au_detected": [],
-                "age_estimate": None,
-                "gender_estimate": None,
-                "video_duration": duration,
+                "emotions":         {k: 0.0 for k in EMOTION_VALENCE},
+                "valence":          0.0,
+                "arousal":          0.0,
+                "confidence":       0.1,
+                "au_detected":      [],
+                "age_estimate":     None,
+                "gender_estimate":  None,
+                "video_duration":   duration,
             }
 
-        # Aggregate across frames (mean)
-        avg_emotions = {}
-        for key in all_emotions[0]:
-            avg_emotions[key] = float(np.mean([e.get(key, 0) for e in all_emotions]))
+        results = [analyze_frame(f) for f in frames]
+        results = [r for r in results if r is not None]
 
-        # Normalize
-        total = sum(avg_emotions.values()) or 1
-        avg_emotions = {k: round(v / total, 4) for k, v in avg_emotions.items()}
+        if not results:
+            return {
+                "face_detected":    False,
+                "dominant_emotion": "neutral",
+                "emotions":         {k: 0.0 for k in EMOTION_VALENCE},
+                "valence":          0.0,
+                "arousal":          0.0,
+                "confidence":       0.1,
+                "au_detected":      [],
+                "age_estimate":     None,
+                "gender_estimate":  None,
+                "video_duration":   round(duration, 2),
+            }
 
-        dominant = max(avg_emotions, key=avg_emotions.get)
+        # Aggregate
+        avg_smile  = float(np.mean([r["smile_score"]  for r in results]))
+        avg_eye    = float(np.mean([r["eye_score"]    for r in results]))
+        avg_bright = float(np.mean([r["brightness"]   for r in results]))
+        avg_sat    = float(np.mean([r["saturation"]   for r in results]))
 
-        # Compute valence and arousal (weighted average)
-        valence = sum(EMOTION_VALENCE.get(e, 0) * w for e, w in avg_emotions.items())
-        arousal = sum(EMOTION_AROUSAL.get(e, 0) * w for e, w in avg_emotions.items())
+        emotions = infer_emotion(avg_smile, avg_eye, avg_bright, avg_sat)
+        dominant = max(emotions, key=emotions.get)
 
-        # Clamp
-        valence = float(np.clip(valence, -1, 1))
-        arousal = float(np.clip(arousal, -1, 1))
+        valence  = sum(EMOTION_VALENCE.get(e, 0) * w for e, w in emotions.items())
+        arousal  = sum(EMOTION_AROUSAL.get(e, 0) * w for e, w in emotions.items())
+        valence  = float(np.clip(valence, -1, 1))
+        arousal  = float(np.clip(arousal, -1, 1))
 
-        # Confidence = detection rate × dominant emotion score
-        detection_rate = face_detected_count / len(frames)
-        confidence = round(detection_rate * avg_emotions.get(dominant, 0.5), 3)
+        detection_rate = len(results) / len(frames)
+        confidence     = round(detection_rate * emotions.get(dominant, 0.5), 3)
 
-        aus = infer_action_units(avg_emotions)
-        age_est = round(float(np.mean(all_ages))) if all_ages else None
-        gender_est = max(set(genders), key=genders.count) if genders else None
+        # Map to approximate AUs
+        au_map = {
+            "happy":     ["AU6", "AU12"],
+            "sad":       ["AU1", "AU4", "AU15"],
+            "angry":     ["AU4", "AU5", "AU7", "AU23"],
+            "fearful":   ["AU1", "AU2", "AU4", "AU20"],
+            "disgusted": ["AU9", "AU15"],
+            "surprised": ["AU1", "AU2", "AU5", "AU27"],
+            "neutral":   [],
+        }
+        aus = au_map.get(dominant, [])
 
         return {
-            "face_detected": True,
+            "face_detected":    True,
             "dominant_emotion": dominant,
-            "emotions": avg_emotions,
-            "valence": round(valence, 4),
-            "arousal": round(arousal, 4),
-            "confidence": round(confidence, 4),
-            "au_detected": aus,
-            "age_estimate": age_est,
-            "gender_estimate": gender_est,
-            "frames_analyzed": len(frames),
-            "frames_with_face": face_detected_count,
-            "video_duration": round(duration, 2),
+            "emotions":         emotions,
+            "valence":          round(valence, 4),
+            "arousal":          round(arousal, 4),
+            "confidence":       round(confidence, 4),
+            "au_detected":      aus,
+            "age_estimate":     None,
+            "gender_estimate":  None,
+            "frames_analyzed":  len(frames),
+            "frames_with_face": len(results),
+            "video_duration":   round(duration, 2),
         }
 
     finally:
@@ -258,7 +249,7 @@ async def analyze_video(file: UploadFile = File(...)):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "face-analysis"}
+    return {"status": "ok", "service": "face-analysis", "engine": "opencv-lightweight"}
 
 
 if __name__ == "__main__":

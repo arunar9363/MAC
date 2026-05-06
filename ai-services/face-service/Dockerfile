@@ -2,12 +2,6 @@ FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libsndfile1 \
-    libportaudio2 \
-    build-essential \
-    cmake \
-    libopenblas-dev \
-    liblapack-dev \
     libgl1 \
     libglib2.0-0 \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*

@@ -3,6 +3,3 @@ uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
-deepface==0.0.93
-mediapipe==0.10.14
-tf-keras==2.17.0
