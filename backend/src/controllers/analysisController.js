@@ -1,3 +1,15 @@
+const warmupServices = async () => {
+  const urls = [
+    process.env.VOICE_SERVICE_URL || 'http://localhost:8002',
+    process.env.FACE_SERVICE_URL  || 'http://localhost:8001',
+    process.env.TEXT_SERVICE_URL  || 'http://localhost:8003',
+  ]
+  for (const url of urls) {
+    axios.get(`${url}/health`).catch(() => {})
+  }
+}
+warmupServices()
+
 const axios = require('axios')
 const path = require('path')
 const Analysis = require('../models/Analysis')
@@ -18,7 +30,7 @@ async function callFileService(serviceUrl, filePath, endpoint = '/analyze') {
 
   const res = await axios.post(`${serviceUrl}${endpoint}`, form, {
     headers: form.getHeaders(),
-    timeout: 60000,
+    timeout: 120000,
   })
   return res.data
 }
