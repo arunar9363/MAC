@@ -1,15 +1,3 @@
-const warmupServices = async () => {
-  const urls = [
-    process.env.VOICE_SERVICE_URL || 'http://localhost:8002',
-    process.env.FACE_SERVICE_URL  || 'http://localhost:8001',
-    process.env.TEXT_SERVICE_URL  || 'http://localhost:8003',
-  ]
-  for (const url of urls) {
-    axios.get(`${url}/health`).catch(() => {})
-  }
-}
-warmupServices()
-
 const axios = require('axios')
 const path = require('path')
 const Analysis = require('../models/Analysis')
@@ -19,6 +7,15 @@ const FACE_URL  = process.env.FACE_SERVICE_URL  || 'http://localhost:8001'
 const VOICE_URL = process.env.VOICE_SERVICE_URL || 'http://localhost:8002'
 const TEXT_URL  = process.env.TEXT_SERVICE_URL  || 'http://localhost:8003'
 const AGENT_URL = process.env.AGENT_SERVICE_URL || 'http://localhost:8004'
+
+// Warm up all services on backend start (prevents Render spin-down delay)
+const warmupServices = async () => {
+  const urls = [FACE_URL, VOICE_URL, TEXT_URL, AGENT_URL]
+  for (const url of urls) {
+    axios.get(`${url}/health`).catch(() => {})
+  }
+}
+warmupServices()
 
 // Call Python microservice with file
 async function callFileService(serviceUrl, filePath, endpoint = '/analyze') {
@@ -97,9 +94,9 @@ const runAnalysis = async (req, res) => {
 
     // Run face, voice, text services in parallel
     const [faceResult, voiceResult, textResult] = await Promise.allSettled([
-      videoFile   ? callFileService(FACE_URL,  videoFile.path) : Promise.resolve(null),
+      videoFile ? callFileService(FACE_URL, videoFile.path) : Promise.resolve(null),
       (audioFile || videoFile) ? callFileService(VOICE_URL, audioFile?.path || videoFile.path) : Promise.resolve(null),
-      text?.trim() ? callTextService(text.trim())              : Promise.resolve(null),
+      text?.trim() ? callTextService(text.trim()) : Promise.resolve(null),
     ])
 
     const faceFeatures  = faceResult.status  === 'fulfilled' ? faceResult.value  : null
@@ -135,7 +132,6 @@ const runAnalysis = async (req, res) => {
       analysis.status = 'completed'
     } catch (agentErr) {
       console.error('Python agent error:', agentErr.message)
-      // Fallback if agent is down
       analysis.finalReport = generateFallbackReport(faceFeatures, voiceFeatures, textFeatures)
       analysis.status = 'completed'
     }
@@ -176,14 +172,14 @@ function generateFallbackReport(face, voice, text) {
   const risk = riskMap[Math.min(riskScore, 5)]
 
   return {
-    emotional_state:    face?.dominant_emotion || text?.emotion || 'undetermined',
-    confidence:         0.6,
-    risk_level:         risk,
-    patterns_detected:  patterns,
+    emotional_state:   face?.dominant_emotion || text?.emotion || 'undetermined',
+    confidence:        0.6,
+    risk_level:        risk,
+    patterns_detected: patterns,
     signals: {
-      face:  face  ? `Dominant: ${face.dominant_emotion}, Valence: ${face.valence?.toFixed(2)}`   : 'No facial data',
+      face:  face  ? `Dominant: ${face.dominant_emotion}, Valence: ${face.valence?.toFixed(2)}`          : 'No facial data',
       voice: voice ? `Energy: ${voice.energy_mean?.toFixed(2)}, Pitch: ${voice.pitch_mean?.toFixed(0)}Hz` : 'No audio data',
-      text:  text  ? `Sentiment: ${text.sentiment}, Compound: ${text.compound?.toFixed(2)}`        : 'No text data',
+      text:  text  ? `Sentiment: ${text.sentiment}, Compound: ${text.compound?.toFixed(2)}`               : 'No text data',
     },
     explanation: 'Fallback analysis generated from raw modality features (AI agent unavailable). Please review manually.',
   }
